@@ -95,7 +95,7 @@ class IndoBERTService:
         normalized_texts = [TextNormalizer.clean_text(t) for t in texts]
 
         results = []
-        batch_size = 16
+        batch_size = 32
 
         for i in range(0, len(normalized_texts), batch_size):
             chunk = normalized_texts[i : i + batch_size]

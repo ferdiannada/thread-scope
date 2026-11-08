@@ -156,29 +156,27 @@ class PlaywrightThreadsScraper(BaseScraper):
                         break
 
                     encoded = urllib.parse.quote(q_text)
-                    # Meta Threads now primary search endpoint on threads.com with seamless session support
                     search_url = f"https://www.threads.com/search?q={encoded}&serp_type=default"
                     logger.info(f"Navigating to query [{q_idx+1}/{len(queries)}]: '{q_text}' ({search_url})")
 
                     try:
-                        await page.goto(search_url, wait_until="networkidle", timeout=25000)
-                    except Exception:
-                        try:
-                            await page.goto(search_url, wait_until="domcontentloaded", timeout=15000)
-                        except Exception as e:
-                            logger.warning(f"Navigation warning for '{q_text}' (continuing): {e}")
-                            continue
+                        # Fast DOM load without waiting for persistent background websockets
+                        await page.goto(search_url, wait_until="domcontentloaded", timeout=12000)
+                    except Exception as e:
+                        logger.warning(f"Navigation warning for '{q_text}' (continuing): {e}")
+                        continue
 
                     # Wait for post card links to be hydrated into the DOM
                     try:
-                        await page.wait_for_selector('a[href*="/post/"]', timeout=8000)
+                        await page.wait_for_selector('a[href*="/post/"]', timeout=5000)
                     except Exception:
-                        await asyncio.sleep(2.0)
+                        await asyncio.sleep(1.0)
 
-                    # Progressive extraction with adaptive scrolling
+                    # Progressive extraction with fast adaptive scrolling
                     stagnant_count = 0
                     prev_count = len(collected_posts)
-                    max_scrolls = 8 if limit > 40 else 4
+                    # Allow up to 18 scrolls on primary query to avoid costly full-page reloads
+                    max_scrolls = 18 if limit > 40 else 8
 
                     for s_step in range(max_scrolls):
                         # Extract DOM cards visible at current viewport before React unmounts them
@@ -192,14 +190,14 @@ class PlaywrightThreadsScraper(BaseScraper):
                         if len(collected_posts) >= limit:
                             break
 
-                        # Scroll down
-                        await page.evaluate("window.scrollBy(0, 2200)")
-                        await asyncio.sleep(1.8)
+                        # Scroll down and wait just enough for React virtualizer to stream next batch
+                        await page.evaluate("window.scrollBy(0, 2400)")
+                        await asyncio.sleep(0.9)
 
                         if len(collected_posts) == prev_count:
                             stagnant_count += 1
-                            if stagnant_count >= 2:
-                                # Threads reached guest scroll ceiling for this query
+                            if stagnant_count >= 3:
+                                # Ceiling reached for this query
                                 break
                         else:
                             stagnant_count = 0
