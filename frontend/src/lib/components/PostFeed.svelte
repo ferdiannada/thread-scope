@@ -288,16 +288,11 @@
   }
 
   function getThreadsLinkInfo(post: ThreadPost): ThreadsLinkInfo {
-    const rawUrl = post.post_url || '';
-    const postId = (post.id || '').replace(/^th_/, '');
+    const rawUrl = (post.post_url || '').trim();
     const author = (post.author_username || 'threads').trim();
 
-    // Deteksi apakah postingan merupakan data live yang terverifikasi ada di Threads
-    const isTopicDynamic = Boolean(post.raw_metadata?.topic_dynamic);
-    const isVerifiedLive = Boolean(post.raw_metadata?.verified_live);
-
-    // Jika postingan live dan memiliki permalink fisik di Threads
-    if (!isTopicDynamic && isVerifiedLive && rawUrl.includes('/post/')) {
+    // Jika URL adalah link langsung ke postingan spesifik Threads (/@user/post/code atau /t/code)
+    if (rawUrl && (rawUrl.includes('/post/') || rawUrl.includes('/t/'))) {
       return {
         url: rawUrl,
         isDirectPost: true,
@@ -311,7 +306,9 @@
     // tautkan langsung ke halaman pencarian resmi Threads agar membuka feed percakapan asli
     // di peramban pengguna dan mencegah munculnya error 404 (Not Found).
     const kw = (post.raw_metadata?.keyword || currentKeyword || 'threads').trim();
-    const searchUrl = `https://www.threads.net/search?q=${encodeURIComponent(kw)}&serp_type=default`;
+    const searchUrl = rawUrl.startsWith('http')
+      ? rawUrl
+      : `https://www.threads.net/search?q=${encodeURIComponent(kw)}&serp_type=default`;
 
     return {
       url: searchUrl,

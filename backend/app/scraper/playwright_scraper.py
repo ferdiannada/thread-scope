@@ -110,19 +110,33 @@ class PlaywrightThreadsScraper(BaseScraper):
                 if getattr(settings, "THREADS_SESSION_ID", None) and settings.THREADS_SESSION_ID.strip():
                     try:
                         sid = settings.THREADS_SESSION_ID.strip()
-                        cookies_to_add = [
-                            {
+                        uid = sid.split('%3A')[0].split(':')[0]
+                        domains = [
+                            ".threads.net", "www.threads.net",
+                            ".threads.com", "www.threads.com",
+                            ".instagram.com"
+                        ]
+                        cookies_to_add = []
+                        for domain in domains:
+                            cookies_to_add.append({
                                 "name": "sessionid",
                                 "value": sid,
                                 "domain": domain,
                                 "path": "/",
                                 "httpOnly": True,
                                 "secure": True,
-                            }
-                            for domain in [".threads.net", ".threads.com", ".instagram.com"]
-                        ]
+                            })
+                            if uid and uid.isdigit():
+                                cookies_to_add.append({
+                                    "name": "ds_user_id",
+                                    "value": uid,
+                                    "domain": domain,
+                                    "path": "/",
+                                    "httpOnly": False,
+                                    "secure": True,
+                                })
                         await context.add_cookies(cookies_to_add)
-                        logger.info("Injected THREADS_SESSION_ID into Playwright context for .threads.net, .threads.com, and .instagram.com.")
+                        logger.info(f"Injected THREADS_SESSION_ID & ds_user_id ({uid}) into Playwright context for threads.com, threads.net, and instagram.com.")
                     except Exception as e:
                         logger.warning(f"Failed to inject sessionid: {e}")
                 elif os.path.exists("threads_cookies.json"):
@@ -142,15 +156,24 @@ class PlaywrightThreadsScraper(BaseScraper):
                         break
 
                     encoded = urllib.parse.quote(q_text)
-                    search_url = f"https://www.threads.net/search?q={encoded}&serp_type=default"
-                    logger.info(f"Navigating to query [{q_idx+1}/{len(queries)}]: '{q_text}'")
+                    # Meta Threads now primary search endpoint on threads.com with seamless session support
+                    search_url = f"https://www.threads.com/search?q={encoded}&serp_type=default"
+                    logger.info(f"Navigating to query [{q_idx+1}/{len(queries)}]: '{q_text}' ({search_url})")
 
                     try:
-                        await page.goto(search_url, wait_until="domcontentloaded", timeout=12000)
-                        await asyncio.sleep(1.8)  # Wait for initial stream
-                    except Exception as e:
-                        logger.warning(f"Navigation warning for '{q_text}' (continuing): {e}")
-                        continue
+                        await page.goto(search_url, wait_until="networkidle", timeout=25000)
+                    except Exception:
+                        try:
+                            await page.goto(search_url, wait_until="domcontentloaded", timeout=15000)
+                        except Exception as e:
+                            logger.warning(f"Navigation warning for '{q_text}' (continuing): {e}")
+                            continue
+
+                    # Wait for post card links to be hydrated into the DOM
+                    try:
+                        await page.wait_for_selector('a[href*="/post/"]', timeout=8000)
+                    except Exception:
+                        await asyncio.sleep(2.0)
 
                     # Progressive extraction with adaptive scrolling
                     stagnant_count = 0
@@ -170,8 +193,8 @@ class PlaywrightThreadsScraper(BaseScraper):
                             break
 
                         # Scroll down
-                        await page.evaluate("window.scrollBy(0, 1800)")
-                        await asyncio.sleep(1.0)
+                        await page.evaluate("window.scrollBy(0, 2200)")
+                        await asyncio.sleep(1.8)
 
                         if len(collected_posts) == prev_count:
                             stagnant_count += 1
